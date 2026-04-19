@@ -2,9 +2,18 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
+
+// 🔥 If running on Render, reconstruct google-key.json from env variable
+if (process.env.GOOGLE_CREDENTIALS_JSON) {
+    const keyPath = path.join(__dirname, 'google-key.json');
+    fs.writeFileSync(keyPath, process.env.GOOGLE_CREDENTIALS_JSON);
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = keyPath;
+}
+
 const { processAudio } = require('./controllers/speechHandler');
 const textToSpeech = require('@google-cloud/text-to-speech');
-
 const ttsClient = new textToSpeech.TextToSpeechClient();
 const app = express();
 app.use(cors());
@@ -102,7 +111,8 @@ app.get('/health', (req, res) => {
     });
 });
 
-const PORT = 3000;
+// 🔥 Render provides PORT as an environment variable
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`✅ Basa-Bata server running on port ${PORT}`);
     console.log(`   Health check: http://localhost:${PORT}/health`);
