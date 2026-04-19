@@ -3,40 +3,39 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const { processAudio } = require('./controllers/speechHandler');
-
-// FIX: Add Google TTS
 const textToSpeech = require('@google-cloud/text-to-speech');
-const ttsClient = new textToSpeech.TextToSpeechClient();
 
+const ttsClient = new textToSpeech.TextToSpeechClient();
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-// --- EXISTING: Speech Recognition Route ---
+// 🔥 Server-side TTS cache — Google only called once per unique word ever
+const ttsCache = new Map();
+
+// --- Speech Recognition ---
 app.post('/api/recognize', upload.single('audio'), async (req, res) => {
-    if (!req.file) {
-        return res.status(400).json({ error: "No audio file uploaded." });
-    }
+    if (!req.file) return res.status(400).json({ error: "No audio file uploaded." });
 
     const expectedWord = req.body.expectedWord
         ? req.body.expectedWord.toLowerCase().trim()
         : "";
 
     try {
-        console.log("Processing audio with Google STT...");
+        console.log(`[STT] Processing "${expectedWord}"...`);
         const transcript = await processAudio(req.file.buffer);
         const transcribedWord = transcript.toLowerCase().trim();
-        console.log(`Expected: "${expectedWord}" | Google heard: "${transcribedWord}"`);
+        console.log(`[STT] Expected: "${expectedWord}" | Heard: "${transcribedWord}"`);
 
         let isCorrect = false;
         if (expectedWord && transcribedWord) {
-            const regex = new RegExp(`\\b${expectedWord}\\b`, 'i');
-            // FIX: Also check if transcription CONTAINS the word
-            // (Google sometimes adds filler words)
-            if (regex.test(transcribedWord) || transcribedWord.includes(expectedWord)) {
-                isCorrect = true;
+             // 🔥 FIX: Use word boundary regex ONLY (removed .includes() substring check)
+             // This ensures "Lisa" won't match "isa", "pusa" won't match "sa", etc.
+             const regex = new RegExp(`\\b${expectedWord}\\b`, 'i');
+             if (regex.test(transcribedWord)) {
+                  isCorrect = true;
             }
         }
 
@@ -47,46 +46,64 @@ app.post('/api/recognize', upload.single('audio'), async (req, res) => {
             isCorrect,
             message: isCorrect ? "Tama!" : "Subukan muli!"
         });
-
     } catch (err) {
-        console.error("Transcription error:", err.message);
+        console.error("[STT ERROR]:", err.message);
         res.status(500).json({ success: false, error: err.message });
     }
 });
 
-// --- NEW: Filipino Text-to-Speech Route ---
-app.post('/api/speak', express.json(), async (req, res) => {
-    const { word } = req.body;
+// --- Filipino Text-to-Speech (with cache) ---
+// --- Filipino Text-to-Speech (with cache + slow mode) ---
+app.post('/api/speak', async (req, res) => {
+    const { word, slow } = req.body; // 🔥 NEW: accept slow flag
     if (!word) return res.status(400).json({ error: "No word provided." });
 
+    // 🔥 Cache key includes speed — slow version cached separately
+    const cacheKey = `${word.toLowerCase().trim()}${slow ? '_slow' : ''}`;
+
+    if (ttsCache.has(cacheKey)) {
+        console.log(`[TTS CACHE HIT] "${cacheKey}"`);
+        return res.json({ success: true, audioContent: ttsCache.get(cacheKey) });
+    }
+
     try {
+        console.log(`[TTS] Generating "${cacheKey}"...`);
         const [response] = await ttsClient.synthesizeSpeech({
             input: { text: word },
             voice: {
-                // FIX: This uses Google's actual Filipino neural voice
                 languageCode: 'fil-PH',
-                name: 'fil-PH-Wavenet-A', // Female Filipino voice
+                name: 'fil-PH-Wavenet-A',
                 ssmlGender: 'FEMALE',
             },
             audioConfig: {
                 audioEncoding: 'MP3',
-                speakingRate: 0.75, // Slower for children
-                pitch: 2.0,        // Slightly higher/friendlier
+                // 🔥 NEW: 0.5x speed for slow mode — helps struggling readers hear each phoneme
+                speakingRate: slow ? 0.5 : 0.75,
+                pitch: 2.0,
             },
         });
 
-        // Send audio bytes as base64 so the app can play it
-        res.json({
-            success: true,
-            audioContent: response.audioContent.toString('base64'),
-        });
+        const audioBase64 = response.audioContent.toString('base64');
+        ttsCache.set(cacheKey, audioBase64);
+
+        res.json({ success: true, audioContent: audioBase64 });
     } catch (err) {
-        console.error("TTS Error:", err.message);
+        console.error("[TTS ERROR]:", err.message);
         res.status(500).json({ success: false, error: err.message });
     }
 });
 
+// Health check endpoint (test your tunnel!)
+app.get('/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        ttsCacheSize: ttsCache.size,
+        timestamp: new Date().toISOString()
+    });
+});
+
 const PORT = 3000;
 app.listen(PORT, () => {
-    console.log(`Basa-Bata server running on port ${PORT}`);
+    console.log(`✅ Basa-Bata server running on port ${PORT}`);
+    console.log(`   Health check: http://localhost:${PORT}/health`);
 });

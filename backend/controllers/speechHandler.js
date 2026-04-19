@@ -2,40 +2,45 @@ const speech = require('@google-cloud/speech');
 const client = new speech.SpeechClient();
 
 async function processAudio(audioBuffer) {
-    const audio = {
-        content: audioBuffer.toString('base64'),
-    };
+    const audio = { content: audioBuffer.toString('base64') };
 
-    // FIX: Use ENCODING_UNSPECIFIED so Google auto-detects
-    // the format. This handles both M4A (iOS) and WEBM (Android).
+    // 🔥 FIX: MP3 encoding actually works for M4A on Google STT
+    // This is the "universal" audio encoding that handles most container types
     const config = {
-        
-        // FIX: Remove sampleRateHertz when using UNSPECIFIED —
-        // Google reads it from the file header automatically.
+        encoding: 'MP3',
+        sampleRateHertz: 44100,
         languageCode: 'fil-PH',
-        alternativeLanguageCodes: ['tl-PH'],
-        // FIX: Add these for better short-word recognition
-        model: 'latest_short',
-        useEnhanced: true,
+        alternativeLanguageCodes: ['tl-PH', 'en-PH'],
+        speechContexts: [{
+            phrases: [
+                'aso', 'pusa', 'ibon',
+                'pula', 'asul', 'dilaw',
+                'isa', 'dalawa', 'tatlo',
+                'mata', 'ilong', 'bibig',
+            ],
+            boost: 10,
+        }],
+        enableAutomaticPunctuation: false,
     };
-
-    const request = { audio, config };
 
     try {
-        const [response] = await client.recognize(request);
+        const [response] = await client.recognize({ audio, config });
 
         if (!response.results || response.results.length === 0) {
-            console.log("Google STT returned no results (silence or unclear audio).");
+            console.log("[STT] No results — audio may be silent or too short.");
             return "";
         }
 
-        const transcription = response.results
-            .map(result => result.alternatives[0].transcript)
+        const transcript = response.results
+            .map(r => r.alternatives[0].transcript)
             .join(' ');
 
-        return transcription;
+        console.log(`[STT] Confidence: ${response.results[0]?.alternatives[0]?.confidence?.toFixed(2) || 'N/A'}`);
+        return transcript;
     } catch (error) {
-        console.error("Google STT Error:", error.message);
+        console.error("[STT ERROR] Full error:", error);
+        console.error("[STT ERROR] Message:", error.message);
+        if (error.details) console.error("[STT ERROR] Details:", error.details);
         throw error;
     }
 }
