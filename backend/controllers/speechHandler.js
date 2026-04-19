@@ -9,7 +9,7 @@ async function processAudio(audioBuffer) {
     // FIX: Use ENCODING_UNSPECIFIED so Google auto-detects
     // the format. This handles both M4A (iOS) and WEBM (Android).
     const config = {
-        encoding: 'ENCODING_UNSPECIFIED',
+        
         // FIX: Remove sampleRateHertz when using UNSPECIFIED —
         // Google reads it from the file header automatically.
         languageCode: 'fil-PH',
