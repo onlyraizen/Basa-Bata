@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ActivityIndicator, Alert, ScrollView, Animated } from 'react-native';
-// 🔥 NEW IMPORTS FOR STRICT AUDIO ROUTING
-import { Audio, InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
+import { Audio } from 'expo-av';
 import * as Speech from 'expo-speech';
 import * as Haptics from 'expo-haptics';
 
@@ -47,28 +46,21 @@ export default function App() {
 
   const progressPercent = activeLessonWords.length > 0 ? (currentWordIndex / activeLessonWords.length) * 100 : 0;
 
-  // 🔥 THE NUCLEAR AUDIO FIX: Strict interruption modes force the hardware to reset
-  const forceSpeakerMode = async () => {
+  // 🔥 THE FIX: A clean, isolated speaker mode function
+  const setSpeakerMode = async () => {
     try {
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
-        interruptionModeIOS: InterruptionModeIOS.DoNotMix,
         playThroughEarpieceAndroid: false,
-        interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
-        shouldDuckAndroid: false,
         staysActiveInBackground: false,
       });
-      // 500ms hardware latch delay ensures the physical speaker engages
-      await new Promise(resolve => setTimeout(resolve, 500));
-    } catch (e) {
-      console.log("Audio routing override failed:", e);
-    }
+    } catch (e) { console.log("Speaker mode override failed:", e); }
   };
 
   const playSFX = async (isCorrect: boolean) => {
     try {
-      await forceSpeakerMode(); 
+      await setSpeakerMode(); 
       const soundFile = isCorrect ? require('../assets/images/correct.mp3') : require('../assets/images/wrong.mp3');
       const { sound } = await Audio.Sound.createAsync(soundFile);
       await sound.playAsync();
@@ -82,9 +74,9 @@ export default function App() {
 
   const speakTagalogWord = async (wordToSay: string) => {
     try {
-      await forceSpeakerMode(); 
+      await setSpeakerMode();
       const availableVoices = await Speech.getAvailableVoicesAsync();
-      const tagalogVoice = availableVoices.find(v => v.language === 'tl-PH' || v.language === 'fil-PH' || v.name.includes('Carmela'));
+      const tagalogVoice = availableVoices.find(v => v.language === 'tl-PH' || v.language === 'fil-PH' || v.name?.includes('Carmela'));
       const options: Speech.SpeechOptions = { language: 'tl-PH', rate: 0.65, pitch: 1.1 };
       if (tagalogVoice) options.voice = tagalogVoice.identifier;
       Speech.speak(wordToSay, options);
@@ -94,7 +86,7 @@ export default function App() {
   };
 
   const speakFeedback = async (message: string) => {
-    await forceSpeakerMode();
+    await setSpeakerMode();
     Speech.speak(message, { language: uiLanguage === 'en' ? 'en-US' : 'tl-PH', rate: 0.9 });
   };
 
@@ -146,11 +138,10 @@ export default function App() {
       setFeedback(null);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-      // Re-engage recording mode strictly
+      // Open the microphone
       await Audio.setAudioModeAsync({ 
         allowsRecordingIOS: true, 
         playsInSilentModeIOS: true,
-        interruptionModeIOS: InterruptionModeIOS.DoNotMix,
         playThroughEarpieceAndroid: false 
       });
       
@@ -166,22 +157,31 @@ export default function App() {
     } catch (err) { console.error(err); }
   }
 
+  // 🔥 THE FIX IS HERE: The iOS hardware breather
   async function stopRecording() {
     if (!recording) return;
     pulseAnim.stopAnimation();
     pulseAnim.setValue(1);
-    setRecording(null);
-    setIsProcessing(true);
+    setIsProcessing(true); // Trigger the spinner IMMEDIATELY
 
     try {
+      // 1. Tell iOS to turn off the mic
       await recording.stopAndUnloadAsync();
       const uri = recording.getURI();
+      setRecording(null);
       
-      // Instantly trigger speaker override
-      await forceSpeakerMode(); 
+      // 2. WAIT 150ms for iOS to physically close the mic before touching the audio mode again
+      await new Promise(resolve => setTimeout(resolve, 150));
+      
+      // 3. NOW it is safe to command the speaker to turn back on
+      await setSpeakerMode(); 
 
       if (uri) await sendAudioToBackend(uri);
-    } catch (error) { setIsProcessing(false); }
+    } catch (error) { 
+      console.error("Recording stop error:", error);
+      setIsProcessing(false); // Prevents infinite spinner if iOS still crashes
+      Alert.alert('Audio Error', 'Please try pressing the button again.');
+    }
   }
 
   async function sendAudioToBackend(uri: string) {
