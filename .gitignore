@@ -44,3 +44,22 @@ app-example
 
 backend/google-key.json
 backend/.env
+
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Secrets — NEVER commit these
+backend/google-key.json
+backend/.env
+*.env
+
+# Expo / build artifacts
+.expo/
+.expo-shared/
+dist/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
