@@ -1,15 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ActivityIndicator, Alert, ScrollView, Animated } from 'react-native';
-import { Audio } from 'expo-av';
+import { Audio, InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
 import * as Speech from 'expo-speech';
 import * as Haptics from 'expo-haptics';
+import { cacheDirectory, writeAsStringAsync, EncodingType } from 'expo-file-system'; 
+
 
 // --- IMPORTS ---
 import { CATEGORIES } from '../constants/Categories';
 import { TRANSLATIONS } from '../constants/Translations';
 import ScrapbookCard from '../components/ScrapbookCard';
 import CategoryButton from '../components/CategoryButton';
-import WelcomeScreen from '../screens/WelcomeScreen'; 
+import WelcomeScreen from '../screens/WelcomeScreen'; ``
 import HomeScreen from '../screens/HomeScreen';
 import TutorialScreen from '../screens/TutorialScreen';
 import ResultsScreen from '../screens/ResultsScreen';
@@ -46,21 +48,59 @@ export default function App() {
 
   const progressPercent = activeLessonWords.length > 0 ? (currentWordIndex / activeLessonWords.length) * 100 : 0;
 
-  // 🔥 THE FIX: A clean, isolated speaker mode function
-  const setSpeakerMode = async () => {
+  // ─────────────────────────────────────────────
+  // FIX 1 + 2: Replace speakTagalogWord entirely
+  // Uses your backend Google TTS instead of expo-speech
+  // ─────────────────────────────────────────────
+  const speakTagalogWord = async (word: string) => {
     try {
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
+        interruptionModeIOS: InterruptionModeIOS.DoNotMix,
         playThroughEarpieceAndroid: false,
-        staysActiveInBackground: false,
+        interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
+        shouldDuckAndroid: false,
       });
-    } catch (e) { console.log("Speaker mode override failed:", e); }
+
+      const speakUrl = BACKEND_URL.replace('/api/recognize', '/api/speak');
+      
+      const response = await fetch(speakUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ word: word }),
+      });
+
+      const data = await response.json();
+
+      if (data.success && data.audioContent) {
+        const fileUri = cacheDirectory + 'tts_word.mp3';
+        await writeAsStringAsync(fileUri, data.audioContent, {
+          encoding: EncodingType.Base64,
+        });
+
+        const { sound } = await Audio.Sound.createAsync({ uri: fileUri });
+        await sound.playAsync();
+        sound.setOnPlaybackStatusUpdate((status) => {
+          if (status.isLoaded && status.didJustFinish) {
+            sound.unloadAsync();
+          }
+        });
+      }
+    } catch (error) {
+      console.log("Google TTS failed, falling back:", error);
+      Speech.speak(word, { language: 'tl-PH', rate: 0.65 });
+    }
   };
 
   const playSFX = async (isCorrect: boolean) => {
     try {
-      await setSpeakerMode(); 
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        interruptionModeIOS: InterruptionModeIOS.DoNotMix,
+        playThroughEarpieceAndroid: false,
+      });
       const soundFile = isCorrect ? require('../assets/images/correct.mp3') : require('../assets/images/wrong.mp3');
       const { sound } = await Audio.Sound.createAsync(soundFile);
       await sound.playAsync();
@@ -72,22 +112,25 @@ export default function App() {
     }
   };
 
-  const speakTagalogWord = async (wordToSay: string) => {
-    try {
-      await setSpeakerMode();
-      const availableVoices = await Speech.getAvailableVoicesAsync();
-      const tagalogVoice = availableVoices.find(v => v.language === 'tl-PH' || v.language === 'fil-PH' || v.name?.includes('Carmela'));
-      const options: Speech.SpeechOptions = { language: 'tl-PH', rate: 0.65, pitch: 1.1 };
-      if (tagalogVoice) options.voice = tagalogVoice.identifier;
-      Speech.speak(wordToSay, options);
-    } catch (error) {
-      Speech.speak(wordToSay, { language: 'tl-PH', rate: 0.65, pitch: 1.1 });
-    }
-  };
-
+  // ─────────────────────────────────────────────
+  // FIX 2: speakFeedback keeps using expo-speech
+  // ─────────────────────────────────────────────
   const speakFeedback = async (message: string) => {
-    await setSpeakerMode();
-    Speech.speak(message, { language: uiLanguage === 'en' ? 'en-US' : 'tl-PH', rate: 0.9 });
+    try {
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        interruptionModeIOS: InterruptionModeIOS.DoNotMix,
+        playThroughEarpieceAndroid: false,
+      });
+      await new Promise(resolve => setTimeout(resolve, 300));
+      Speech.speak(message, {
+        language: uiLanguage === 'en' ? 'en-US' : 'tl-PH',
+        rate: 0.85,
+      });
+    } catch (e) {
+      console.log("speakFeedback error:", e);
+    }
   };
 
   useEffect(() => {
@@ -109,7 +152,7 @@ export default function App() {
         Animated.spring(progressAnim, { toValue: progressPercent, useNativeDriver: false })
       ]).start();
       
-      speakTagalogWord((currentWord as any).tts || currentWord.word);
+      speakTagalogWord(currentWord.word);
     }
   }, [currentWordIndex, currentScreen]);
 
@@ -138,10 +181,10 @@ export default function App() {
       setFeedback(null);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-      // Open the microphone
       await Audio.setAudioModeAsync({ 
         allowsRecordingIOS: true, 
         playsInSilentModeIOS: true,
+        interruptionModeIOS: InterruptionModeIOS.DoNotMix,
         playThroughEarpieceAndroid: false 
       });
       
@@ -157,45 +200,69 @@ export default function App() {
     } catch (err) { console.error(err); }
   }
 
-  // 🔥 THE FIX IS HERE: The iOS hardware breather
+  // ─────────────────────────────────────────────
+  // FIX 3: stopRecording safely resets spinner
+  // ─────────────────────────────────────────────
   async function stopRecording() {
-    if (!recording) return;
+    if (!recording) {
+      setIsProcessing(false);
+      return;
+    }
+
     pulseAnim.stopAnimation();
     pulseAnim.setValue(1);
-    setIsProcessing(true); // Trigger the spinner IMMEDIATELY
+
+    const recordingRef = recording;
+    setRecording(null);
+    setIsProcessing(true);
 
     try {
-      // 1. Tell iOS to turn off the mic
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
-      setRecording(null);
-      
-      // 2. WAIT 150ms for iOS to physically close the mic before touching the audio mode again
-      await new Promise(resolve => setTimeout(resolve, 150));
-      
-      // 3. NOW it is safe to command the speaker to turn back on
-      await setSpeakerMode(); 
+      await recordingRef.stopAndUnloadAsync();
+      const uri = recordingRef.getURI();
 
-      if (uri) await sendAudioToBackend(uri);
-    } catch (error) { 
-      console.error("Recording stop error:", error);
-      setIsProcessing(false); // Prevents infinite spinner if iOS still crashes
-      Alert.alert('Audio Error', 'Please try pressing the button again.');
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        interruptionModeIOS: InterruptionModeIOS.DoNotMix,
+        playThroughEarpieceAndroid: false,
+        interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
+        shouldDuckAndroid: false,
+      });
+
+      if (uri) {
+        await sendAudioToBackend(uri);
+      } else {
+        console.log("Recording URI was null.");
+        setIsProcessing(false);
+      }
+    } catch (error) {
+      console.error("stopRecording error:", error);
+      setIsProcessing(false);
     }
   }
 
+  // ─────────────────────────────────────────────
+  // FIX 3: sendAudioToBackend formatting fix
+  // ─────────────────────────────────────────────
   async function sendAudioToBackend(uri: string) {
     const formData = new FormData();
-    formData.append('audio', { uri: uri, type: 'audio/m4a', name: 'audio.m4a' } as any);
+    formData.append('audio', {
+      uri: uri,
+      type: 'audio/m4a',
+      name: 'recording.m4a',
+    } as any);
     formData.append('expectedWord', currentWord.word);
 
     try {
       const response = await fetch(BACKEND_URL, {
         method: 'POST',
         body: formData,
-        headers: { 'Content-Type': 'multipart/form-data' },
       });
-      
+
+      if (!response.ok) {
+        throw new Error(`Server returned ${response.status}`);
+      }
+
       const data = await response.json();
       
       if (data.success) {
@@ -215,10 +282,11 @@ export default function App() {
           setTimeout(() => speakFeedback(fbMessage), 800);
         }
       } else {
-        Alert.alert('Error', data.error || 'Failed to process audio.');
+        Alert.alert('Hindi narinig', data.error || 'Subukan muli.');
       }
     } catch (error) {
-      Alert.alert('Network Error', 'Walang koneksyon sa server.');
+      console.error("Network/parse error:", error);
+      Alert.alert('Koneksyon Error', 'Walang koneksyon sa server. Subukan muli.');
     } finally {
       setIsProcessing(false);
     }
@@ -329,7 +397,7 @@ export default function App() {
         <ScrapbookCard 
           word={currentWord.word} 
           icon={currentWord.icon} 
-          onReplay={() => { Haptics.selectionAsync(); speakTagalogWord((currentWord as any).tts || currentWord.word); }} 
+          onReplay={() => { Haptics.selectionAsync(); speakTagalogWord(currentWord.word); }} 
           cardOpacity={cardOpacity} 
           cardScale={cardScale} 
         />

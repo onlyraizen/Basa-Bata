@@ -5,9 +5,9 @@ export const CATEGORIES = {
     subtitle: 'Animals',
     icon: '🦁',
     words: [
-      { id: 1, word: 'aso', tts: 'ah-soh', icon: '🐶' }, // Sharp 'o'
-      { id: 2, word: 'pusa', tts: 'poo-sah', icon: '🐱' },
-      { id: 3, word: 'ibon', tts: 'ee-bohn', icon: '🐦' }, // Added 'h'
+      { id: 1, word: 'aso',  icon: '🐶' },
+      { id: 2, word: 'pusa', icon: '🐱' },
+      { id: 3, word: 'ibon', icon: '🐦' },
     ]
   },
   kulay: {
@@ -16,9 +16,9 @@ export const CATEGORIES = {
     subtitle: 'Colors',
     icon: '🎨',
     words: [
-      { id: 1, word: 'pula', tts: 'poo-lah', icon: '🔴' },
-      { id: 2, word: 'asul', tts: 'ah-sool', icon: '🔵' },
-      { id: 3, word: 'dilaw', tts: 'dee-lao', icon: '🟡' },
+      { id: 1, word: 'pula',  icon: '🔴' },
+      { id: 2, word: 'asul',  icon: '🔵' },
+      { id: 3, word: 'dilaw', icon: '🟡' },
     ]
   },
   bilang: {
@@ -27,9 +27,9 @@ export const CATEGORIES = {
     subtitle: 'Numbers',
     icon: '🔢',
     words: [
-      { id: 1, word: 'isa', tts: 'ee-sah', icon: '1️⃣' },
-      { id: 2, word: 'dalawa', tts: 'dah-lah-wah', icon: '2️⃣' },
-      { id: 3, word: 'tatlo', tts: 'taht-loh', icon: '3️⃣' }, // Sharp 'o'
+      { id: 1, word: 'isa',    icon: '1️⃣' },
+      { id: 2, word: 'dalawa', icon: '2️⃣' },
+      { id: 3, word: 'tatlo',  icon: '3️⃣' },
     ]
   },
   katawan: {
@@ -38,9 +38,9 @@ export const CATEGORIES = {
     subtitle: 'Body Parts',
     icon: '👋',
     words: [
-      { id: 1, word: 'mata', tts: 'mah-tah', icon: '👁️' },
-      { id: 2, word: 'ilong', tts: 'ee-lohng', icon: '👃' }, // Added 'h'
-      { id: 3, word: 'bibig', tts: 'bee-beeg', icon: '👄' },
+      { id: 1, word: 'mata',  icon: '👁️' },
+      { id: 2, word: 'ilong', icon: '👃' },
+      { id: 3, word: 'bibig', icon: '👄' },
     ]
   }
 };

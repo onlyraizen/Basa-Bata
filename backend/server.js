@@ -4,46 +4,47 @@ const cors = require('cors');
 const multer = require('multer');
 const { processAudio } = require('./controllers/speechHandler');
 
+// FIX: Add Google TTS
+const textToSpeech = require('@google-cloud/text-to-speech');
+const ttsClient = new textToSpeech.TextToSpeechClient();
+
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Set up Multer to hold the uploaded audio file in memory
 const upload = multer({ storage: multer.memoryStorage() });
 
-// The Basa-Bata Validation Engine Route
+// --- EXISTING: Speech Recognition Route ---
 app.post('/api/recognize', upload.single('audio'), async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: "No audio file uploaded." });
     }
 
-    // Grab the expected word sent from the React Native frontend
-    const expectedWord = req.body.expectedWord ? req.body.expectedWord.toLowerCase().trim() : "";
+    const expectedWord = req.body.expectedWord
+        ? req.body.expectedWord.toLowerCase().trim()
+        : "";
 
     try {
-        console.log("Receiving audio from app... processing with Google STT...");
+        console.log("Processing audio with Google STT...");
         const transcript = await processAudio(req.file.buffer);
-        
-        // Clean up Google's response for a fair comparison
         const transcribedWord = transcript.toLowerCase().trim();
         console.log(`Expected: "${expectedWord}" | Google heard: "${transcribedWord}"`);
-        
-        // Gamification Logic (Pass/Fail)
+
         let isCorrect = false;
-        if (expectedWord) {
-            // Creates a strict word boundary. 'isa' will match "isa", but NOT "lisa" or "misa".
+        if (expectedWord && transcribedWord) {
             const regex = new RegExp(`\\b${expectedWord}\\b`, 'i');
-            if (regex.test(transcribedWord)) {
+            // FIX: Also check if transcription CONTAINS the word
+            // (Google sometimes adds filler words)
+            if (regex.test(transcribedWord) || transcribedWord.includes(expectedWord)) {
                 isCorrect = true;
             }
         }
 
-        // Send the complete payload back to trigger the frontend animations
-        res.json({ 
-            success: true, 
-            heard: transcribedWord,
+        res.json({
+            success: true,
+            heard: transcribedWord || "(walang narinig)",
             expected: expectedWord,
-            isCorrect: isCorrect,
+            isCorrect,
             message: isCorrect ? "Tama!" : "Subukan muli!"
         });
 
@@ -53,7 +54,39 @@ app.post('/api/recognize', upload.single('audio'), async (req, res) => {
     }
 });
 
+// --- NEW: Filipino Text-to-Speech Route ---
+app.post('/api/speak', express.json(), async (req, res) => {
+    const { word } = req.body;
+    if (!word) return res.status(400).json({ error: "No word provided." });
+
+    try {
+        const [response] = await ttsClient.synthesizeSpeech({
+            input: { text: word },
+            voice: {
+                // FIX: This uses Google's actual Filipino neural voice
+                languageCode: 'fil-PH',
+                name: 'fil-PH-Wavenet-A', // Female Filipino voice
+                ssmlGender: 'FEMALE',
+            },
+            audioConfig: {
+                audioEncoding: 'MP3',
+                speakingRate: 0.75, // Slower for children
+                pitch: 2.0,        // Slightly higher/friendlier
+            },
+        });
+
+        // Send audio bytes as base64 so the app can play it
+        res.json({
+            success: true,
+            audioContent: response.audioContent.toString('base64'),
+        });
+    } catch (err) {
+        console.error("TTS Error:", err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 const PORT = 3000;
 app.listen(PORT, () => {
-    console.log(`Server is listening on port ${PORT}`);
+    console.log(`Basa-Bata server running on port ${PORT}`);
 });

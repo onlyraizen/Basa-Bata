@@ -1,35 +1,41 @@
 const speech = require('@google-cloud/speech');
-
-// This automatically finds your google-key.json because of the .env file!
 const client = new speech.SpeechClient();
 
 async function processAudio(audioBuffer) {
-    // Convert the audio buffer into the base64 format Google requires
     const audio = {
         content: audioBuffer.toString('base64'),
     };
 
-    // Configure for Tagalog/Filipino
+    // FIX: Use ENCODING_UNSPECIFIED so Google auto-detects
+    // the format. This handles both M4A (iOS) and WEBM (Android).
     const config = {
-        encoding: 'WEBM_OPUS', // Default for Expo AV Android/Web, we can tweak this later
-        sampleRateHertz: 48000,
-        languageCode: 'fil-PH', // Explicitly set to Tagalog
+        encoding: 'ENCODING_UNSPECIFIED',
+        // FIX: Remove sampleRateHertz when using UNSPECIFIED —
+        // Google reads it from the file header automatically.
+        languageCode: 'fil-PH',
+        alternativeLanguageCodes: ['tl-PH'],
+        // FIX: Add these for better short-word recognition
+        model: 'latest_short',
+        useEnhanced: true,
     };
 
-    const request = {
-        audio: audio,
-        config: config,
-    };
+    const request = { audio, config };
 
     try {
         const [response] = await client.recognize(request);
+
+        if (!response.results || response.results.length === 0) {
+            console.log("Google STT returned no results (silence or unclear audio).");
+            return "";
+        }
+
         const transcription = response.results
             .map(result => result.alternatives[0].transcript)
-            .join('\n');
-            
+            .join(' ');
+
         return transcription;
     } catch (error) {
-        console.error("Google STT Error:", error);
+        console.error("Google STT Error:", error.message);
         throw error;
     }
 }
