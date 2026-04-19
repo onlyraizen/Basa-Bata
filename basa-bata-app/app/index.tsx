@@ -16,7 +16,7 @@ import TutorialScreen from '../screens/TutorialScreen';
 import ResultsScreen from '../screens/ResultsScreen';
 
 // 🛑 IMPORTANT: PASTE YOUR NEW TERMINAL 2 CLOUDFLARE LINK BELOW! 🛑
-const BACKEND_URL = 'https://joseph-boxes-arrangements-disco.trycloudflare.com/api/recognize/api/recognize';
+const BACKEND_URL = 'https://joseph-boxes-arrangements-disco.trycloudflare.com/api/recognize';
 
 const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);
 
