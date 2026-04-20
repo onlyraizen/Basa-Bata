@@ -4,11 +4,12 @@ import { StyleSheet, Text, TouchableOpacity, Animated, View } from 'react-native
 interface ScrapbookCardProps {
   word: string;
   icon: string;
-  syllables?: string; // 🔥 NEW: Syllable hint (e.g., "a-so") shown after 2 wrong attempts
+  syllables?: string;
   onReplay: () => void;
-  onSlowReplay?: () => void; // 🔥 NEW: Turtle button for slow pronunciation
+  onSlowReplay?: () => void;
   cardOpacity: Animated.Value;
   cardScale: Animated.Value;
+  a11yLabels?: { listen: string; listenSlow: string }; // 🔥 NEW
 }
 
 export default function ScrapbookCard({
@@ -19,6 +20,7 @@ export default function ScrapbookCard({
   onSlowReplay,
   cardOpacity,
   cardScale,
+  a11yLabels,
 }: ScrapbookCardProps) {
   return (
     <Animated.View
@@ -26,26 +28,46 @@ export default function ScrapbookCard({
         styles.scrapbookCard,
         { opacity: cardOpacity, transform: [{ scale: cardScale }, { rotate: '-2deg' }] },
       ]}
+      accessible={true}
+      accessibilityLabel={`Card showing ${word}`}
     >
       <Text style={styles.iconText}>{icon}</Text>
-      <Text style={styles.promptText}>{word.toUpperCase()}</Text>
+      <Text
+        style={styles.promptText}
+        accessibilityRole="header"
+        accessibilityLabel={`Word: ${word}`}
+      >
+        {word.toUpperCase()}
+      </Text>
 
-      {/* 🔥 Syllable hint — only shown when child has struggled */}
       {syllables && (
-        <View style={styles.hintContainer}>
+        <View style={styles.hintContainer} accessible={true} accessibilityLabel={`Hint: ${syllables}`}>
           <Text style={styles.hintLabel}>💡 Subukan: </Text>
           <Text style={styles.hintText}>{syllables.toUpperCase()}</Text>
         </View>
       )}
 
-      {/* 🔥 Two-button row: Normal replay + Slow replay */}
       <View style={styles.buttonRow}>
-        <TouchableOpacity style={styles.replayButton} onPress={onReplay} activeOpacity={0.7}>
+        <TouchableOpacity
+          style={styles.replayButton}
+          onPress={onReplay}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={a11yLabels?.listen || 'Listen to word'}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
           <Text style={styles.replayButtonText}>🔊 Pakinggan</Text>
         </TouchableOpacity>
 
         {onSlowReplay && (
-          <TouchableOpacity style={styles.slowButton} onPress={onSlowReplay} activeOpacity={0.7}>
+          <TouchableOpacity
+            style={styles.slowButton}
+            onPress={onSlowReplay}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel={a11yLabels?.listenSlow || 'Listen slowly'}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
             <Text style={styles.slowButtonText}>🐢 Dahan-dahan</Text>
           </TouchableOpacity>
         )}
@@ -108,10 +130,11 @@ const styles = StyleSheet.create({
   replayButton: {
     backgroundColor: '#EFF6FF',
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 12, // 🔥 bigger tap target (was 10)
     borderRadius: 20,
     borderWidth: 2,
     borderColor: '#BFDBFE',
+    minHeight: 44, // 🔥 iOS accessibility minimum
   },
   replayButtonText: {
     fontSize: 15,
@@ -121,10 +144,11 @@ const styles = StyleSheet.create({
   slowButton: {
     backgroundColor: '#F0FDF4',
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 12, // 🔥 bigger tap target
     borderRadius: 20,
     borderWidth: 2,
     borderColor: '#BBF7D0',
+    minHeight: 44, // 🔥 iOS accessibility minimum
   },
   slowButtonText: {
     fontSize: 15,

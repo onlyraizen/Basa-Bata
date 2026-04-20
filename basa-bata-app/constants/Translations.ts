@@ -19,6 +19,7 @@ export const TRANSLATIONS = {
     micPress: "🎤 Pindutin at Magsalita",
     feedbackGood: "Magaling!",
     feedbackTry: "Subukan muli",
+    feedbackAlmost: "Konti na lang!", // 🔥 NEW
     silentError: "Hindi ko narinig. Subukan muli!",
     finish: "Natapos mo ang aralin!",
     perfect: "Perpekto!",
@@ -26,7 +27,6 @@ export const TRANSLATIONS = {
     tutStep1: "1. Pumili ng kategorya ng aralin.",
     tutStep2: "2. Pindutin at basahin ang salita.",
     tutStep3: "3. Hintayin ang resulta!",
-    // NEW strings
     completed: "Natapos",
     attempts: "Pagsubok",
     correct: "Tama",
@@ -50,6 +50,15 @@ export const TRANSLATIONS = {
     resultsBreakdown: "Mga Resulta",
     wordsCorrect: "tama",
     wordsTotal: "kabuuan",
+    // 🔥 NEW strings
+    offlineError: "Walang internet. Pakisuri ang koneksyon.",
+    serverError: "May problema sa server. Subukan muli mamaya.",
+    keepGoing: "Tuloy-tuloy lang! Kaya mo yan!",
+    a11yRecord: "Pindutin at magsalita na button",
+    a11yListen: "Pakinggan ang salita",
+    a11yListenSlow: "Pakinggan nang dahan-dahan",
+    a11yNext: "Susunod na salita",
+    a11yBack: "Bumalik sa dating screen",
   },
   en: {
     title: "Basa-Bata",
@@ -71,6 +80,7 @@ export const TRANSLATIONS = {
     micPress: "🎤 Press and Speak",
     feedbackGood: "Great job!",
     feedbackTry: "Try again",
+    feedbackAlmost: "Almost there!", // 🔥 NEW
     silentError: "I didn't hear you. Try again!",
     finish: "You finished the lesson!",
     perfect: "Perfect!",
@@ -78,7 +88,6 @@ export const TRANSLATIONS = {
     tutStep1: "1. Choose a lesson category.",
     tutStep2: "2. Hold the mic and read the word.",
     tutStep3: "3. Wait for your score!",
-    // NEW strings
     completed: "Completed",
     attempts: "Attempts",
     correct: "Correct",
@@ -102,5 +111,14 @@ export const TRANSLATIONS = {
     resultsBreakdown: "Results Breakdown",
     wordsCorrect: "correct",
     wordsTotal: "total",
+    // 🔥 NEW strings
+    offlineError: "No internet connection. Please check your network.",
+    serverError: "Server issue. Please try again later.",
+    keepGoing: "Keep going! You can do it!",
+    a11yRecord: "Press and speak button",
+    a11yListen: "Listen to the word",
+    a11yListenSlow: "Listen slowly",
+    a11yNext: "Next word",
+    a11yBack: "Go back to previous screen",
   },
 };

@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { Animated, Text, StyleSheet } from 'react-native';
 
 interface ReactiveMascotProps {
-  mood: 'idle' | 'happy' | 'sad' | 'excited';
+  mood: 'idle' | 'happy' | 'sad' | 'excited' | 'encouraging';
   size?: number;
 }
 
@@ -47,17 +47,18 @@ export default function ReactiveMascot({ mood, size = 90 }: ReactiveMascotProps)
         Animated.timing(scale, { toValue: 0.85, duration: 200, useNativeDriver: true }),
         Animated.timing(scale, { toValue: 1, duration: 400, useNativeDriver: true }),
       ]).start();
+    } else if (mood === 'encouraging') {
+      // 🔥 NEW: gentle nod — not as big as happy, says "you got this!"
+      Animated.sequence([
+        Animated.timing(bounce, { toValue: -8, duration: 200, useNativeDriver: true }),
+        Animated.timing(bounce, { toValue: 0, duration: 200, useNativeDriver: true }),
+        Animated.timing(bounce, { toValue: -8, duration: 200, useNativeDriver: true }),
+        Animated.timing(bounce, { toValue: 0, duration: 200, useNativeDriver: true }),
+      ]).start();
     }
   }, [mood]);
 
-  const getEmoji = () => {
-    switch (mood) {
-      case 'happy': return '🦉';
-      case 'excited': return '🦉';
-      case 'sad': return '🦉';
-      default: return '🦉';
-    }
-  };
+  const getEmoji = () => '🦉';
 
   const rotateInterpolated = rotate.interpolate({
     inputRange: [-1, 1],
@@ -76,10 +77,13 @@ export default function ReactiveMascot({ mood, size = 90 }: ReactiveMascotProps)
           ],
         },
       ]}
+      accessible={true}
+      accessibilityLabel={`Mascot owl, ${mood} mood`}
     >
       <Text style={[styles.emoji, { fontSize: size }]}>{getEmoji()}</Text>
       {mood === 'sad' && <Text style={styles.overlay}>💭</Text>}
       {mood === 'excited' && <Text style={styles.overlay}>✨</Text>}
+      {mood === 'encouraging' && <Text style={styles.overlay}>💪</Text>}
     </Animated.View>
   );
 }

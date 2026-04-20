@@ -19,6 +19,7 @@ import ParentDashboard from '../screens/ParentDashboard';
 import AchievementsScreen from '../screens/AchievementsScreen';
 import ReactiveMascot from '../components/ReactiveMascot';
 import FlyingStar from '../components/FlyingStar';
+import ServerWarmup from '../components/ServerWarmup';
 import {
   getProgress,
   saveWordProgress,
@@ -33,10 +34,11 @@ import {
   AllProgress,
 } from '../utils/Storage';
 
-// 🛑 UPDATE THIS EVERY TIME YOU RESTART CLOUDFLARE TUNNEL
-const BACKEND_BASE = 'https://progress-junior-portsmouth-perceived.trycloudflare.com';
+// 🛑 Render backend URL — permanent, no more tunnel restarts!
+const BACKEND_BASE = 'https://basa-bata.onrender.com';
 const RECOGNIZE_URL = `${BACKEND_BASE}/api/recognize`;
 const SPEAK_URL = `${BACKEND_BASE}/api/speak`;
+const HEALTH_URL = `${BACKEND_BASE}/health`;
 
 const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);
 
@@ -44,6 +46,26 @@ const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);
 const ttsCache = new Map<string, string>();
 
 type Screen = 'welcome' | 'home' | 'categories' | 'lesson' | 'results' | 'tutorial' | 'parent' | 'achievements';
+
+// 🔥 NEW: Check string similarity (for "almost there" feedback)
+function isAlmostMatch(expected: string, heard: string): boolean {
+  if (!expected || !heard) return false;
+  const e = expected.toLowerCase().trim();
+  const h = heard.toLowerCase().trim();
+  if (e === h) return false; // Perfect match handled elsewhere
+
+  // Same first letter AND similar length = "close enough"
+  if (e[0] === h[0] && Math.abs(e.length - h.length) <= 2) {
+    // Count matching characters in same positions
+    let matches = 0;
+    for (let i = 0; i < Math.min(e.length, h.length); i++) {
+      if (e[i] === h[i]) matches++;
+    }
+    // 60%+ chars match = encouraging feedback
+    return matches / e.length >= 0.6;
+  }
+  return false;
+}
 
 export default function App() {
   const [uiLanguage, setUiLanguage] = useState<'tl' | 'en'>('tl');
@@ -59,13 +81,12 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [feedback, setFeedback] = useState<{ isCorrect: boolean; message: string; heard: string } | null>(null);
 
-  // 🔥 NEW STATE
   const [progress, setProgress] = useState<AllProgress>({});
   const [totalStars, setTotalStars] = useState(0);
   const [dailyStreak, setDailyStreak] = useState(0);
   const [unlockedAchievements, setUnlockedAchievements] = useState<string[]>([]);
   const [soundEnabled, setSoundEnabledState] = useState(true);
-  const [mascotMood, setMascotMood] = useState<'idle' | 'happy' | 'sad' | 'excited'>('idle');
+  const [mascotMood, setMascotMood] = useState<'idle' | 'happy' | 'sad' | 'excited' | 'encouraging'>('idle');
   const [showFlyingStar, setShowFlyingStar] = useState(false);
   const [firstAttemptForWord, setFirstAttemptForWord] = useState(true);
   const [showHint, setShowHint] = useState(false);
@@ -73,11 +94,18 @@ export default function App() {
   const [newAchievement, setNewAchievement] = useState<string | null>(null);
   const [sessionResults, setSessionResults] = useState<{ word: string; correct: boolean }[]>([]);
 
+  const [serverReady, setServerReady] = useState(false);
+  const [showWarmup, setShowWarmup] = useState(false);
+
+  // 🔥 NEW: Prevent double-taps on record button
+  const recordingLockRef = useRef(false);
+
   const cardScale = useRef(new Animated.Value(0.5)).current;
   const cardOpacity = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
   const mascotBounce = useRef(new Animated.Value(0)).current;
+  const mascotGlow = useRef(new Animated.Value(0.4)).current;
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentSoundRef = useRef<Audio.Sound | null>(null);
 
@@ -103,6 +131,47 @@ export default function App() {
       setUnlockedAchievements(ua);
       setSoundEnabledState(se);
     })();
+  }, []);
+
+  // ─── WARM UP RENDER SERVER ON APP START ────────────────────
+  useEffect(() => {
+    let warmupTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const warmUpServer = async () => {
+      try {
+        warmupTimer = setTimeout(() => {
+          setShowWarmup(true);
+        }, 3000);
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+        const response = await fetch(HEALTH_URL, { signal: controller.signal });
+
+        clearTimeout(timeoutId);
+        if (warmupTimer) clearTimeout(warmupTimer);
+
+        setServerReady(true);
+        setShowWarmup(false);
+
+        if (response.ok) {
+          console.log('✅ Server warm and ready');
+        } else {
+          console.log('⚠️ Server responded with status:', response.status);
+        }
+      } catch (error) {
+        console.log('Server warmup failed (will let app run anyway):', error);
+        if (warmupTimer) clearTimeout(warmupTimer);
+        setServerReady(true);
+        setShowWarmup(false);
+      }
+    };
+
+    warmUpServer();
+
+    return () => {
+      if (warmupTimer) clearTimeout(warmupTimer);
+    };
   }, []);
 
   // ─── AUDIO MODE HELPERS ────────────────────────────────────
@@ -243,6 +312,13 @@ export default function App() {
           Animated.timing(mascotBounce, { toValue: 0, duration: 1000, useNativeDriver: true }),
         ])
       ).start();
+
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(mascotGlow, { toValue: 0.7, duration: 1500, useNativeDriver: true }),
+          Animated.timing(mascotGlow, { toValue: 0.4, duration: 1500, useNativeDriver: true }),
+        ])
+      ).start();
     }
 
     if (currentScreen === 'lesson' && currentWord) {
@@ -316,8 +392,13 @@ export default function App() {
 
   // ─── RECORDING ──────────────────────────────────────────────
   async function startRecording() {
+    // 🔥 NEW: Double-tap prevention
+    if (recordingLockRef.current) return;
+    recordingLockRef.current = true;
+
     try {
       if (permissionResponse?.status !== 'granted') {
+        recordingLockRef.current = false;
         return Alert.alert('Error', 'Microphone permission needed.');
       }
       setFeedback(null);
@@ -340,12 +421,14 @@ export default function App() {
       ).start();
     } catch (err) {
       console.error(err);
+      recordingLockRef.current = false;
     }
   }
 
   async function stopRecording() {
     if (!recording) {
       setIsProcessing(false);
+      recordingLockRef.current = false;
       return;
     }
     pulseAnim.stopAnimation();
@@ -368,6 +451,9 @@ export default function App() {
     } catch (error) {
       console.error('stopRecording error:', error);
       setIsProcessing(false);
+    } finally {
+      // 🔥 Release lock after full round-trip completes
+      recordingLockRef.current = false;
     }
   }
 
@@ -389,7 +475,6 @@ export default function App() {
       const data = await response.json();
 
       if (data.success) {
-        // Silent recording handling
         if (!data.heard || data.heard === '(walang narinig)') {
           setFeedback({
             isCorrect: false,
@@ -401,7 +486,14 @@ export default function App() {
           return;
         }
 
-        const fbMessage = data.isCorrect ? langDict.feedbackGood : langDict.feedbackTry;
+        // 🔥 NEW: Detect "almost there" cases for encouraging feedback
+        const almostMatch = !data.isCorrect && isAlmostMatch(data.expected || currentWord.word, data.heard);
+        const fbMessage = data.isCorrect
+          ? langDict.feedbackGood
+          : almostMatch
+          ? langDict.feedbackAlmost
+          : langDict.feedbackTry;
+
         setFeedback({ isCorrect: data.isCorrect, message: fbMessage, heard: data.heard });
         await playSFX(data.isCorrect);
 
@@ -427,7 +519,8 @@ export default function App() {
           feedbackTimerRef.current = setTimeout(() => speakFeedback(fbMessage), 800);
         } else {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-          setMascotMood('sad');
+          // 🔥 NEW: Use encouraging mood for near-matches, sad for others
+          setMascotMood(almostMatch ? 'encouraging' : 'sad');
           setStreak(0);
           setFirstAttemptForWord(false);
           const newWrongCount = wrongAttempts + 1;
@@ -439,11 +532,15 @@ export default function App() {
           feedbackTimerRef.current = setTimeout(() => speakFeedback(fbMessage), 800);
         }
       } else {
-        Alert.alert('Hindi narinig', data.error || 'Subukan muli.');
+        Alert.alert(langDict.silentError, data.error || langDict.feedbackTry);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Network error:', error);
-      Alert.alert('Koneksyon Error', 'Walang koneksyon sa server. Subukan muli.');
+      // 🔥 NEW: Better error messages based on error type
+      const errorMessage = error?.message?.includes('Network')
+        ? langDict.offlineError
+        : langDict.serverError;
+      Alert.alert('⚠️', errorMessage);
     } finally {
       setIsProcessing(false);
     }
@@ -479,6 +576,16 @@ export default function App() {
   };
 
   // ─── RENDER ────────────────────────────────────────────────
+
+  if (showWarmup && !serverReady) {
+    return (
+      <ServerWarmup
+        message={uiLanguage === 'tl' ? 'Gumigising ang server...' : 'Waking up server...'}
+        submessage={uiLanguage === 'tl' ? 'Sandali lang po! (15-30 segundo)' : 'Just a moment! (15-30 seconds)'}
+      />
+    );
+  }
+
   if (currentScreen === 'welcome') {
     return <WelcomeScreen langDict={langDict} onEnter={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setCurrentScreen('home'); }} />;
   }
@@ -514,22 +621,36 @@ export default function App() {
   if (currentScreen === 'home') {
     return (
       <View style={styles.container}>
-        {/* Top stats bar */}
+        <View style={[styles.cornerAccent, styles.cornerTopLeft]} />
+        <View style={[styles.cornerAccent, styles.cornerBottomRight]} />
+        <Text style={[styles.decorStar, styles.decorStar1]}>✨</Text>
+        <Text style={[styles.decorStar, styles.decorStar2]}>⭐</Text>
+        <Text style={[styles.decorStar, styles.decorStar3]}>💫</Text>
+
         <View style={styles.homeTopBar}>
-          <View style={styles.statsPill}>
+          <View style={styles.statsPill} accessible={true} accessibilityLabel={`${totalStars} total stars`}>
             <Text style={styles.statsText}>⭐ {totalStars}</Text>
           </View>
           {dailyStreak > 0 && (
-            <View style={styles.statsPill}>
+            <View style={styles.statsPill} accessible={true} accessibilityLabel={`${dailyStreak} day streak`}>
               <Text style={styles.statsText}>🔥 {dailyStreak}</Text>
             </View>
           )}
-          <TouchableOpacity onPress={toggleSound} style={styles.soundToggle}>
+          <TouchableOpacity
+            onPress={toggleSound}
+            style={styles.soundToggle}
+            accessibilityRole="button"
+            accessibilityLabel={soundEnabled ? langDict.soundOn : langDict.soundOff}
+            accessibilityState={{ checked: soundEnabled }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
             <Text style={styles.soundToggleText}>{soundEnabled ? '🔊' : '🔇'}</Text>
           </TouchableOpacity>
         </View>
 
         <View style={styles.homeCenter}>
+          <Animated.View style={[styles.mascotGlow, { opacity: mascotGlow }]} />
+
           <Animated.View style={{ transform: [{ translateY: mascotBounce }] }}>
             <Text style={{ fontSize: 90, marginBottom: -20, zIndex: 10, textAlign: 'center' }}>🦉</Text>
           </Animated.View>
@@ -539,26 +660,51 @@ export default function App() {
           </View>
         </View>
 
-        <TouchableOpacity style={styles.primaryButton} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); setIsPracticeMode(false); setCurrentScreen('categories'); }}>
+        <TouchableOpacity
+          style={styles.primaryButton}
+          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); setIsPracticeMode(false); setCurrentScreen('categories'); }}
+          accessibilityRole="button"
+          accessibilityLabel={langDict.start}
+        >
           <Text style={styles.primaryButtonText}>{langDict.start}</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={[styles.primaryButton, { backgroundColor: '#F59E0B', borderBottomColor: '#D97706' }]} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); setIsPracticeMode(true); setCurrentScreen('categories'); }}>
+        <TouchableOpacity
+          style={[styles.primaryButton, { backgroundColor: '#F59E0B', borderBottomColor: '#D97706' }]}
+          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); setIsPracticeMode(true); setCurrentScreen('categories'); }}
+          accessibilityRole="button"
+          accessibilityLabel={langDict.practice}
+        >
           <Text style={styles.primaryButtonText}>{langDict.practice}</Text>
         </TouchableOpacity>
 
         <View style={styles.bottomButtonRow}>
-          <TouchableOpacity style={styles.iconButton} onPress={() => { Haptics.selectionAsync(); setCurrentScreen('tutorial'); }}>
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={() => { Haptics.selectionAsync(); setCurrentScreen('tutorial'); }}
+            accessibilityRole="button"
+            accessibilityLabel={langDict.tutorial}
+          >
             <Text style={styles.iconButtonEmoji}>❓</Text>
             <Text style={styles.iconButtonLabel}>{langDict.tutorial}</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.iconButton} onPress={() => { Haptics.selectionAsync(); setCurrentScreen('parent'); }}>
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={() => { Haptics.selectionAsync(); setCurrentScreen('parent'); }}
+            accessibilityRole="button"
+            accessibilityLabel={langDict.parentDashboard}
+          >
             <Text style={styles.iconButtonEmoji}>👨‍👩‍👧</Text>
             <Text style={styles.iconButtonLabel}>{langDict.parentDashboard}</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.iconButton} onPress={toggleLanguage}>
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={toggleLanguage}
+            accessibilityRole="button"
+            accessibilityLabel={langDict.switchLang}
+          >
             <Text style={styles.iconButtonEmoji}>🌐</Text>
             <Text style={styles.iconButtonLabel}>{uiLanguage === 'tl' ? 'EN' : 'TL'}</Text>
           </TouchableOpacity>
@@ -588,7 +734,12 @@ export default function App() {
             />
           ))}
         </ScrollView>
-        <TouchableOpacity style={styles.secondaryButton} onPress={() => { Haptics.selectionAsync(); setCurrentScreen('home'); }}>
+        <TouchableOpacity
+          style={styles.secondaryButton}
+          onPress={() => { Haptics.selectionAsync(); setCurrentScreen('home'); }}
+          accessibilityRole="button"
+          accessibilityLabel={langDict.a11yBack}
+        >
           <Text style={styles.secondaryButtonText}>{langDict.back}</Text>
         </TouchableOpacity>
       </View>
@@ -613,7 +764,12 @@ export default function App() {
   return (
     <View style={styles.container}>
       <View style={styles.topBar}>
-        <TouchableOpacity onPress={() => { Haptics.selectionAsync(); setCurrentScreen('categories'); }}>
+        <TouchableOpacity
+          onPress={() => { Haptics.selectionAsync(); setCurrentScreen('categories'); }}
+          accessibilityRole="button"
+          accessibilityLabel={langDict.a11yBack}
+          hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+        >
           <Text style={styles.backButton}>✖</Text>
         </TouchableOpacity>
 
@@ -631,7 +787,6 @@ export default function App() {
         </View>
       </View>
 
-      {/* 🦉 Reactive Mascot */}
       <View style={styles.mascotContainer}>
         <ReactiveMascot mood={mascotMood} size={60} />
       </View>
@@ -645,16 +800,26 @@ export default function App() {
           onSlowReplay={() => { Haptics.selectionAsync(); speakTagalogWord(currentWord.word, true); }}
           cardOpacity={cardOpacity}
           cardScale={cardScale}
+          a11yLabels={{ listen: langDict.a11yListen, listenSlow: langDict.a11yListenSlow }}
         />
 
         <View style={styles.feedbackContainer}>
           {isProcessing && <ActivityIndicator size="large" color="#4ade80" />}
           {feedback && (
-            <View style={[styles.feedbackBox, feedback.isCorrect ? styles.feedbackCorrect : styles.feedbackIncorrect]}>
+            <View
+              style={[styles.feedbackBox, feedback.isCorrect ? styles.feedbackCorrect : styles.feedbackIncorrect]}
+              accessible={true}
+              accessibilityLabel={`${feedback.message}. Heard: ${feedback.heard}`}
+            >
               <Text style={styles.feedbackTitle}>{feedback.message}</Text>
               <Text style={styles.feedbackSubtitle}>{langDict.heard} "{feedback.heard}"</Text>
               {feedback.isCorrect && (
-                <TouchableOpacity style={styles.nextButton} onPress={nextWord}>
+                <TouchableOpacity
+                  style={styles.nextButton}
+                  onPress={nextWord}
+                  accessibilityRole="button"
+                  accessibilityLabel={langDict.a11yNext}
+                >
                   <Text style={styles.nextButtonText}>{langDict.next}</Text>
                 </TouchableOpacity>
               )}
@@ -674,6 +839,9 @@ export default function App() {
           onPressIn={startRecording}
           onPressOut={stopRecording}
           disabled={isProcessing || feedback?.isCorrect === true}
+          accessibilityRole="button"
+          accessibilityLabel={langDict.a11yRecord}
+          accessibilityState={{ disabled: isProcessing || feedback?.isCorrect === true }}
         >
           <Text style={styles.recordButtonText}>
             {recording ? langDict.micListen : langDict.micPress}
@@ -681,12 +849,15 @@ export default function App() {
         </AnimatedTouchable>
       </View>
 
-      {/* Flying star animation */}
       {showFlyingStar && <FlyingStar onComplete={() => setShowFlyingStar(false)} />}
 
-      {/* New achievement notification */}
       {newAchievement && (
-        <View style={styles.achievementToast}>
+        <View
+          style={styles.achievementToast}
+          accessible={true}
+          accessibilityLabel={`${langDict.newAchievement}: ${newAchievement}`}
+          accessibilityLiveRegion="polite"
+        >
           <Text style={styles.achievementToastLabel}>{langDict.newAchievement}</Text>
           <Text style={styles.achievementToastText}>{newAchievement}</Text>
         </View>
@@ -696,22 +867,55 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#E0F0FF', paddingTop: 60, paddingBottom: 40, paddingHorizontal: 20, justifyContent: 'space-between' },
+  container: { flex: 1, backgroundColor: '#E0F0FF', paddingTop: 60, paddingBottom: 40, paddingHorizontal: 20, justifyContent: 'space-between', overflow: 'hidden' },
+  cornerAccent: {
+    position: 'absolute',
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+  },
+  cornerTopLeft: {
+    top: -60,
+    left: -60,
+    backgroundColor: '#B3D4FF',
+    opacity: 0.4,
+  },
+  cornerBottomRight: {
+    bottom: -60,
+    right: -60,
+    backgroundColor: '#FED7AA',
+    opacity: 0.35,
+  },
+  decorStar: {
+    position: 'absolute',
+    opacity: 0.4,
+  },
+  decorStar1: { top: 100, right: 30, fontSize: 24 },
+  decorStar2: { top: 180, left: 30, fontSize: 20 },
+  decorStar3: { bottom: 120, left: 40, fontSize: 22 },
+  mascotGlow: {
+    position: 'absolute',
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: '#FDE047',
+    top: 40,
+  },
   homeTopBar: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 10, marginBottom: 10 },
   statsPill: { backgroundColor: '#FFFFFF', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 2, borderColor: '#B3D4FF' },
   statsText: { fontSize: 16, fontWeight: 'bold', color: '#1E293B' },
-  soundToggle: { backgroundColor: '#FFFFFF', width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#B3D4FF' },
+  soundToggle: { backgroundColor: '#FFFFFF', width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#B3D4FF' },
   soundToggleText: { fontSize: 18 },
   homeCenter: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   logoCard: { backgroundColor: '#FFFFFF', width: '100%', paddingVertical: 50, borderRadius: 40, alignItems: 'center', borderWidth: 5, borderColor: '#B3D4FF', transform: [{ rotate: '2deg' }], shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.15, shadowRadius: 15, elevation: 8 },
   logoTitle: { fontSize: 60, fontWeight: '900', color: '#3B82F6', letterSpacing: 2, textAlign: 'center' },
   logoSubtitle: { fontSize: 24, fontWeight: 'bold', color: '#64748B', marginTop: 5 },
-  primaryButton: { backgroundColor: '#22C55E', width: '100%', paddingVertical: 20, borderRadius: 100, borderBottomWidth: 8, borderBottomColor: '#16A34A', alignItems: 'center', marginBottom: 15 },
+  primaryButton: { backgroundColor: '#22C55E', width: '100%', paddingVertical: 20, borderRadius: 100, borderBottomWidth: 8, borderBottomColor: '#16A34A', alignItems: 'center', marginBottom: 15, minHeight: 64 },
   primaryButtonText: { color: '#FFFFFF', fontSize: 22, fontWeight: '900', letterSpacing: 1 },
-  secondaryButton: { backgroundColor: '#94A3B8', width: '100%', paddingVertical: 18, borderRadius: 100, borderBottomWidth: 6, borderBottomColor: '#64748B', alignItems: 'center', marginBottom: 10 },
+  secondaryButton: { backgroundColor: '#94A3B8', width: '100%', paddingVertical: 18, borderRadius: 100, borderBottomWidth: 6, borderBottomColor: '#64748B', alignItems: 'center', marginBottom: 10, minHeight: 56 },
   secondaryButtonText: { color: '#FFFFFF', fontSize: 20, fontWeight: 'bold' },
   bottomButtonRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 5 },
-  iconButton: { flex: 1, backgroundColor: '#FFFFFF', marginHorizontal: 5, paddingVertical: 14, borderRadius: 20, alignItems: 'center', borderWidth: 2, borderColor: '#B3D4FF' },
+  iconButton: { flex: 1, backgroundColor: '#FFFFFF', marginHorizontal: 5, paddingVertical: 14, borderRadius: 20, alignItems: 'center', borderWidth: 2, borderColor: '#B3D4FF', minHeight: 72 },
   iconButtonEmoji: { fontSize: 28, marginBottom: 4 },
   iconButtonLabel: { fontSize: 11, fontWeight: 'bold', color: '#475569', textAlign: 'center' },
   header: { marginBottom: 30, alignItems: 'center' },
@@ -732,10 +936,10 @@ const styles = StyleSheet.create({
   feedbackIncorrect: { backgroundColor: '#FEE2E2', borderColor: '#EF4444' },
   feedbackTitle: { fontSize: 20, fontWeight: 'bold', color: '#1E293B', marginBottom: 2 },
   feedbackSubtitle: { fontSize: 14, color: '#475569', fontStyle: 'italic', marginBottom: 10 },
-  nextButton: { backgroundColor: '#22C55E', paddingHorizontal: 25, paddingVertical: 10, borderRadius: 20, marginTop: 5 },
+  nextButton: { backgroundColor: '#22C55E', paddingHorizontal: 25, paddingVertical: 12, borderRadius: 20, marginTop: 5, minHeight: 44 },
   nextButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
   actionZone: { alignItems: 'center', paddingBottom: 10 },
-  recordButton: { backgroundColor: '#3B82F6', width: '100%', paddingVertical: 18, borderRadius: 100, borderBottomWidth: 8, borderBottomColor: '#1D4ED8', alignItems: 'center', marginBottom: 5 },
+  recordButton: { backgroundColor: '#3B82F6', width: '100%', paddingVertical: 20, borderRadius: 100, borderBottomWidth: 8, borderBottomColor: '#1D4ED8', alignItems: 'center', marginBottom: 5, minHeight: 64 },
   recordingActive: { backgroundColor: '#EF4444', borderBottomColor: '#B91C1C', borderBottomWidth: 4 },
   recordingDisabled: { backgroundColor: '#94A3B8', borderBottomColor: '#64748B' },
   recordButtonText: { color: '#FFFFFF', fontSize: 18, fontWeight: '900', letterSpacing: 1 },
